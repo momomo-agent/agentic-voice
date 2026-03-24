@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agentic-voice — Speech for AI apps</title>
+<meta name="description" content="TTS + STT in one library. Zero dependencies. OpenAI-compatible. Push-to-talk.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#08080a;--surface:rgba(255,255,255,0.025);--border:rgba(255,255,255,0.05);
+  --text:rgba(255,255,255,0.88);--text2:rgba(255,255,255,0.45);--text3:rgba(255,255,255,0.2);
+  --accent:#f87171;--accent2:#ef4444;--accent-dim:rgba(248,113,113,0.06);--accent-border:rgba(248,113,113,0.12);
+  --green:#4ade80;--purple:#a78bfa;--blue:#60a5fa;--orange:#fb923c;
+  --serif:'Instrument Serif',Georgia,serif;--mono:'Space Mono',monospace;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);-webkit-font-smoothing:antialiased;overflow-x:hidden;font-size:13px}
+body::before{content:'';position:fixed;inset:0;background:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");pointer-events:none;z-index:999}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ── Hero ── */
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:0 10vw;position:relative}
+.hero::after{content:'';position:absolute;top:15%;right:8%;width:450px;height:450px;background:radial-gradient(circle,rgba(248,113,113,0.07) 0%,rgba(248,113,113,0.02) 40%,transparent 70%);pointer-events:none;border-radius:50%}
+.hero-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;background:var(--accent-dim);border:1px solid var(--accent-border);border-radius:20px;font-size:11px;color:var(--accent);margin-bottom:32px;width:fit-content}
+.hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.hero h1{font-family:var(--serif);font-size:clamp(48px,8vw,96px);font-weight:400;line-height:1.05;letter-spacing:-0.02em;max-width:800px}
+.hero h1 em{font-style:italic;color:var(--accent)}
+.hero .subtitle{font-size:14px;color:var(--text2);max-width:480px;line-height:1.8;margin-top:28px}
+.hero-actions{display:flex;gap:12px;margin-top:36px}
+.hero-actions a{display:inline-flex;align-items:center;gap:6px;padding:10px 22px;border-radius:6px;font-size:12px;font-family:var(--mono);text-decoration:none;transition:all 0.2s}
+.hero-actions .primary{background:var(--accent);color:#000;border:none}
+.hero-actions .primary:hover{background:var(--accent2);text-decoration:none}
+.hero-actions .secondary{background:transparent;color:var(--text2);border:1px solid var(--border)}
+.hero-actions .secondary:hover{border-color:rgba(255,255,255,0.15);color:var(--text);text-decoration:none}
+
+/* ── Sections ── */
+section{padding:80px 10vw}
+.section-label{font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:3px;margin-bottom:12px}
+.section-title{font-family:var(--serif);font-size:clamp(28px,4vw,48px);font-weight:400;margin-bottom:40px}
+
+/* ── Code ── */
+.code-block{background:rgba(255,255,255,0.015);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:24px}
+.code-header{padding:8px 16px;background:rgba(255,255,255,0.02);font-size:11px;color:var(--text3);border-bottom:1px solid var(--border)}
+.code-body{padding:24px;font-size:12px;line-height:1.9;overflow-x:auto;white-space:pre;color:var(--text2)}
+.kw{color:var(--purple)}.fn{color:var(--accent)}.str{color:var(--green)}.cmt{color:var(--text3);font-style:italic}.prop{color:var(--blue)}
+
+/* ── Two-col ── */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:32px}
+.col-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;position:relative;overflow:hidden}
+.col-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.col-card.tts::before{background:linear-gradient(90deg,var(--accent),var(--orange))}
+.col-card.stt::before{background:linear-gradient(90deg,var(--blue),var(--purple))}
+.col-card .cc-icon{font-size:32px;margin-bottom:16px}
+.col-card h3{font-size:16px;font-weight:700;margin-bottom:8px}
+.col-card p{font-size:12px;color:var(--text2);line-height:1.7;margin-bottom:16px}
+.col-card ul{list-style:none;padding:0}
+.col-card li{font-size:11px;color:var(--text3);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+.col-card li::before{content:'→ ';color:var(--accent);opacity:0.5}
+
+/* ── API table ── */
+.api-table{border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.api-row{display:grid;grid-template-columns:200px 1fr;padding:10px 20px;border-bottom:1px solid var(--border);font-size:12px;align-items:baseline}
+.api-row:last-child{border-bottom:none}
+.api-row.header{background:rgba(255,255,255,0.02);color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:1px;font-size:9px}
+.api-name{color:var(--accent);font-weight:700}
+.api-desc{color:var(--text2)}
+
+/* ── Features ── */
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.feat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px 20px;transition:all 0.3s}
+.feat:hover{border-color:rgba(255,255,255,0.1);transform:translateY(-2px)}
+.feat .f-icon{font-size:20px;margin-bottom:10px}
+.feat .f-title{font-size:12px;font-weight:700;margin-bottom:4px}
+.feat .f-desc{font-size:11px;color:var(--text3);line-height:1.7}
+
+/* ── Waveform visualizer ── */
+.waveform{display:flex;align-items:center;justify-content:center;gap:3px;height:40px;margin:20px 0}
+.waveform .bar{width:3px;border-radius:2px;background:var(--accent);animation:wave 1.2s ease-in-out infinite}
+.waveform .bar:nth-child(1){height:12px;animation-delay:0s}
+.waveform .bar:nth-child(2){height:24px;animation-delay:0.1s}
+.waveform .bar:nth-child(3){height:36px;animation-delay:0.2s}
+.waveform .bar:nth-child(4){height:28px;animation-delay:0.3s}
+.waveform .bar:nth-child(5){height:16px;animation-delay:0.4s}
+.waveform .bar:nth-child(6){height:32px;animation-delay:0.15s}
+.waveform .bar:nth-child(7){height:20px;animation-delay:0.25s}
+.waveform .bar:nth-child(8){height:28px;animation-delay:0.35s}
+.waveform .bar:nth-child(9){height:14px;animation-delay:0.45s}
+.waveform .bar:nth-child(10){height:22px;animation-delay:0.05s}
+.waveform .bar:nth-child(11){height:30px;animation-delay:0.2s}
+.waveform .bar:nth-child(12){height:18px;animation-delay:0.3s}
+@keyframes wave{0%,100%{transform:scaleY(0.4);opacity:0.3}50%{transform:scaleY(1);opacity:1}}
+
+/* ── Footer ── */
+footer{padding:60px 10vw;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+footer .logo{font-family:var(--serif);font-size:18px;font-style:italic}
+footer .links{display:flex;gap:20px}
+footer a{font-size:11px;color:var(--text3);text-decoration:none}
+footer a:hover{color:var(--text)}
+
+@media(max-width:768px){
+  .hero{padding:0 6vw}section{padding:60px 6vw}
+  .two-col{grid-template-columns:1fr}
+  .features{grid-template-columns:1fr}
+  .api-row{grid-template-columns:140px 1fr;font-size:11px}
+}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge"><div class="dot"></div>agentic family</div>
+  <h1>Agentic <em>Voice</em></h1>
+  <div class="subtitle">
+    Speech for AI apps.<br>
+    TTS + STT in one library. Zero dependencies.<br>
+    OpenAI-compatible. Push-to-talk built in.
+  </div>
+  <div class="waveform">
+    <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+  </div>
+  <div class="hero-actions">
+    <a href="https://github.com/momomo-agent/agentic-voice" class="primary">GitHub →</a>
+    <a href="#api" class="secondary">API Reference</a>
+  </div>
+</div>
+
+<section>
+  <div class="section-label">Quick Start</div>
+  <div class="section-title">Three lines to speak</div>
+  <div class="code-block">
+    <div class="code-header">Complete voice setup</div>
+    <div class="code-body"><span class="kw">const</span> voice = AgenticVoice.<span class="fn">createVoice</span>({
+  <span class="prop">tts</span>: { baseUrl: <span class="str">'https://api.openai.com'</span>, apiKey: <span class="str">'sk-...'</span>, voice: <span class="str">'alloy'</span> },
+  <span class="prop">stt</span>: { mode: <span class="str">'browser'</span> },  <span class="cmt">// or 'whisper'</span>
+})
+
+<span class="cmt">// Speak</span>
+<span class="kw">await</span> voice.<span class="fn">speak</span>(<span class="str">'Hello world'</span>)
+
+<span class="cmt">// Listen</span>
+voice.<span class="fn">startListening</span>()
+voice.<span class="fn">on</span>(<span class="str">'transcript'</span>, text => console.log(text))</div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Two engines</div>
+  <div class="section-title">Speak and listen</div>
+  <div class="two-col">
+    <div class="col-card tts">
+      <div class="cc-icon">🔊</div>
+      <h3>Text-to-Speech</h3>
+      <p>OpenAI-compatible TTS API. AudioContext playback with Audio element fallback.</p>
+      <ul>
+        <li>Generation tracking — no stale audio</li>
+        <li>Retry with exponential backoff</li>
+        <li>CORS proxy support</li>
+        <li>Auto-stops when user starts recording</li>
+        <li>AudioContext unlock helper</li>
+      </ul>
+    </div>
+    <div class="col-card stt">
+      <div class="cc-icon">🎤</div>
+      <h3>Speech-to-Text</h3>
+      <p>Two modes: Web Speech API (free, no key) or Whisper API (accurate, any language).</p>
+      <ul>
+        <li>Push-to-talk with minimum hold time</li>
+        <li>webm → wav conversion for Whisper</li>
+        <li>MediaRecorder + Web Speech dual path</li>
+        <li>Automatic language detection</li>
+        <li>Direct blob transcription API</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Standalone</div>
+  <div class="section-title">Use what you need</div>
+  <div class="code-block">
+    <div class="code-header">TTS only</div>
+    <div class="code-body"><span class="kw">const</span> tts = AgenticVoice.<span class="fn">createTTS</span>({ apiKey: <span class="str">'...'</span>, voice: <span class="str">'nova'</span> })
+<span class="kw">await</span> tts.<span class="fn">speak</span>(<span class="str">'一句话就够了'</span>)
+tts.<span class="fn">stop</span>()</div>
+  </div>
+  <div class="code-block">
+    <div class="code-header">STT only</div>
+    <div class="code-body"><span class="kw">const</span> stt = AgenticVoice.<span class="fn">createSTT</span>({ mode: <span class="str">'whisper'</span>, apiKey: <span class="str">'...'</span> })
+stt.<span class="fn">startListening</span>(
+  text => console.log(<span class="str">'You said:'</span>, text),
+  err  => console.error(err)
+)
+stt.<span class="fn">stopListening</span>()</div>
+  </div>
+</section>
+
+<section id="api">
+  <div class="section-label">API</div>
+  <div class="section-title">Voice instance</div>
+  <div class="api-table">
+    <div class="api-row header"><div>Method</div><div>Description</div></div>
+    <div class="api-row"><div class="api-name">speak(text, opts?)</div><div class="api-desc">Speak text aloud. Async — resolves when done.</div></div>
+    <div class="api-row"><div class="api-name">stop()</div><div class="api-desc">Stop speaking immediately.</div></div>
+    <div class="api-row"><div class="api-name">startListening()</div><div class="api-desc">Start recording. Emits 'transcript' when done.</div></div>
+    <div class="api-row"><div class="api-name">stopListening()</div><div class="api-desc">Stop recording, trigger transcription.</div></div>
+    <div class="api-row"><div class="api-name">transcribe(blob)</div><div class="api-desc">Transcribe an audio Blob directly via Whisper API.</div></div>
+    <div class="api-row"><div class="api-name">unlock()</div><div class="api-desc">Unlock AudioContext. Call on first user gesture.</div></div>
+    <div class="api-row"><div class="api-name">on(event, fn)</div><div class="api-desc">Listen: 'transcript', 'speaking', 'listening', 'error'</div></div>
+    <div class="api-row"><div class="api-name">isSpeaking</div><div class="api-desc">Boolean — currently playing audio?</div></div>
+    <div class="api-row"><div class="api-name">isListening</div><div class="api-desc">Boolean — currently recording?</div></div>
+    <div class="api-row"><div class="api-name">destroy()</div><div class="api-desc">Release AudioContext, stop everything.</div></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Design</div>
+  <div class="section-title">Why one library</div>
+  <div class="features">
+    <div class="feat">
+      <div class="f-icon">🔄</div>
+      <div class="f-title">Mutual Exclusion</div>
+      <div class="f-desc">TTS auto-stops when recording starts. No audio collision. No echo loops.</div>
+    </div>
+    <div class="feat">
+      <div class="f-icon">⏱</div>
+      <div class="f-title">Generation Tracking</div>
+      <div class="f-desc">Each speak() call gets a generation ID. Stale responses never play over fresh ones.</div>
+    </div>
+    <div class="feat">
+      <div class="f-icon">🔌</div>
+      <div class="f-title">OpenAI-Compatible</div>
+      <div class="f-desc">Works with any OpenAI-compatible TTS/Whisper endpoint. Local, cloud, self-hosted.</div>
+    </div>
+    <div class="feat">
+      <div class="f-icon">🎯</div>
+      <div class="f-title">Push-to-Talk</div>
+      <div class="f-desc">Hold to record, release to transcribe. Minimum hold time prevents accidental triggers.</div>
+    </div>
+    <div class="feat">
+      <div class="f-icon">🔀</div>
+      <div class="f-title">Dual STT Modes</div>
+      <div class="f-desc">Web Speech API for zero-cost, Whisper API for accuracy. Switch with one config change.</div>
+    </div>
+    <div class="feat">
+      <div class="f-icon">📦</div>
+      <div class="f-title">Zero Dependencies</div>
+      <div class="f-desc">One file. UMD format. Works with script tags, CommonJS, and ESM. No build step.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">With Claw</div>
+  <div class="section-title">Voice-enabled agent in 10 lines</div>
+  <div class="code-block">
+    <div class="code-header">agentic-claw + agentic-voice</div>
+    <div class="code-body"><span class="kw">const</span> claw  = AgenticClaw.<span class="fn">createClaw</span>({ apiKey, skills: [<span class="str">'calculate'</span>] })
+<span class="kw">const</span> voice = AgenticVoice.<span class="fn">createVoice</span>({
+  tts: { apiKey: ttsKey, voice: <span class="str">'nova'</span> },
+  stt: { mode: <span class="str">'browser'</span> },
+})
+
+voice.<span class="fn">on</span>(<span class="str">'transcript'</span>, <span class="kw">async</span> text => {
+  <span class="kw">const</span> { answer } = <span class="kw">await</span> claw.<span class="fn">chat</span>(text)
+  <span class="kw">await</span> voice.<span class="fn">speak</span>(answer)
+})</div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Ecosystem</div>
+  <div class="section-title">Part of the agentic family</div>
+  <div class="features" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+    <div class="feat"><div class="f-icon">⚡</div><div class="f-title">agentic-core</div><div class="f-desc">LLM engine</div></div>
+    <div class="feat"><div class="f-icon">👁</div><div class="f-title">agentic-sense</div><div class="f-desc">Human perception</div></div>
+    <div class="feat"><div class="f-icon">🎯</div><div class="f-title">agentic-act</div><div class="f-desc">Intent execution</div></div>
+    <div class="feat"><div class="f-icon">🧠</div><div class="f-title">agentic-memory</div><div class="f-desc">Conversation + knowledge</div></div>
+    <div class="feat"><div class="f-icon">✨</div><div class="f-title">agentic-render</div><div class="f-desc">Streaming UI</div></div>
+    <div class="feat"><div class="f-icon">💾</div><div class="f-title">agentic-store</div><div class="f-desc">SQLite persistence</div></div>
+    <div class="feat" style="border-color:rgba(248,113,113,0.2);background:rgba(248,113,113,0.02)"><div class="f-icon">🎙</div><div class="f-title">agentic-voice</div><div class="f-desc">Speech (this)</div></div>
+    <div class="feat"><div class="f-icon">🦀</div><div class="f-title">agentic-claw</div><div class="f-desc">Agent runtime</div></div>
+  </div>
+</section>
+
+<footer>
+  <div class="logo">agentic-voice</div>
+  <div class="links">
+    <a href="https://github.com/momomo-agent/agentic-voice">GitHub</a>
+    <a href="https://momomo-agent.github.io/agentic/">agentic.js</a>
+    <a href="https://github.com/momomo-agent">momomo-agent</a>
+  </div>
+</footer>
+
+</body>
+</html>
