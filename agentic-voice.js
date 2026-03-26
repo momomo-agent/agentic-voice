@@ -17,13 +17,24 @@
  *   voice.startListening()
  *   voice.stopListening()  // → emits 'transcript' event
  *
+ *   // Playback progress (0-1)
+ *   voice.on('progress', ({ progress, duration, elapsed }) => ...)
+ *
+ *   // Word-level timestamps
+ *   const { words, duration } = await voice.timestamps('Hello world')
+ *
+ *   // Fetch audio without playing
+ *   const buffer = await voice.fetchAudio('Hello world')
+ *   const result = await voice.playBuffer(buffer)
+ *
  *   // Events
  *   voice.on('transcript', text => console.log(text))
  *   voice.on('speaking', playing => ...)
+ *   voice.on('progress', ({ progress, duration, elapsed }) => ...)
  *   voice.on('error', err => ...)
  *
  * Browser:
- *   <script src="agentic-voice/voice.js"></script>
+ *   <script src="agentic-voice.js"></script>
  *   const voice = AgenticVoice.createVoice({ ... })
  */
 ;(function (root, factory) {
@@ -58,6 +69,44 @@
     }
   }
 
+  // ── webm→wav conversion (browser) ───────────────────────────────
+
+  async function webmToWav(blob) {
+    const ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)()
+    const arrayBuffer = await blob.arrayBuffer()
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+    const samples = audioBuffer.getChannelData(0)
+    const sampleRate = audioBuffer.sampleRate
+    const buffer = new ArrayBuffer(44 + samples.length * 2)
+    const view = new DataView(buffer)
+    const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)) }
+    writeStr(0, 'RIFF')
+    view.setUint32(4, 36 + samples.length * 2, true)
+    writeStr(8, 'WAVE')
+    writeStr(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, 1, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * 2, true)
+    view.setUint16(32, 2, true)
+    view.setUint16(34, 16, true)
+    writeStr(36, 'data')
+    view.setUint32(40, samples.length * 2, true)
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]))
+      view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+    }
+    ctx.close()
+    return new Blob([buffer], { type: 'audio/wav' })
+  }
+
+  // ── URL helpers ──────────────────────────────────────────────────
+
+  function cleanUrl(url) {
+    return (url || '').trim().replace(/\/+$/, '').replace(/\/v1$/, '')
+  }
+
   // ── TTS Engine ───────────────────────────────────────────────────
 
   function createTTS(config = {}) {
@@ -73,24 +122,39 @@
     let audioCtx = null
     let currentSource = null
     let generation = 0
+    let progressRAF = null
+
+    // Observable state
+    let _progress = 0
+    let _duration = 0
+    let _onProgress = null   // callback: ({ progress, duration, elapsed }) => void
+    let _onEnd = null         // callback: () => void
 
     function getAudioCtx() {
       if (!audioCtx) audioCtx = new (globalThis.AudioContext || globalThis.webkitAudioContext)()
       return audioCtx
     }
 
-    function cleanUrl(url) {
-      return (url || '').trim().replace(/\/+$/, '').replace(/\/v1$/, '')
+    function stopProgressLoop() {
+      if (progressRAF) {
+        cancelAnimationFrame(progressRAF)
+        progressRAF = null
+      }
     }
 
-    async function speak(text, opts = {}) {
-      if (!text?.trim()) return false
-      if (!apiKey) throw new Error('TTS apiKey required')
+    function resetPlaybackState() {
+      stopProgressLoop()
+      _progress = 0
+      _duration = 0
+    }
 
-      const gen = ++generation
-
-      // Stop previous
-      stop()
+    /**
+     * Fetch TTS audio as ArrayBuffer without playing.
+     * Returns null on failure.
+     */
+    async function fetchAudio(text, opts = {}) {
+      if (!text?.trim()) return null
+      if (!apiKey && !opts.apiKey) return null
 
       const base = cleanUrl(opts.baseUrl || baseUrl)
       const url = `${base}/v1/audio/speech`
@@ -108,7 +172,6 @@
         response_format: opts.format || format,
       })
 
-      // Fetch with retry
       let res, lastErr
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -120,59 +183,159 @@
         }
       }
       if (!res) throw lastErr
-      if (gen !== generation) return false
       if (!res.ok) throw new Error(`TTS failed: ${res.status} ${res.statusText}`)
 
       const arrayBuffer = await res.arrayBuffer()
-      if (gen !== generation) return false
-      if (arrayBuffer.byteLength === 0) return false
+      if (arrayBuffer.byteLength === 0) return null
+      return arrayBuffer
+    }
 
-      // Play via AudioContext
+    /**
+     * Play an already-fetched audio ArrayBuffer.
+     * Returns { duration } on success, null on cancel/failure.
+     * Emits progress events via _onProgress callback.
+     */
+    async function playBuffer(arrayBuffer) {
+      const gen = ++generation
+
+      // Stop previous
+      stop()
+      resetPlaybackState()
+
       const ctx = getAudioCtx()
       if (ctx.state === 'suspended') await ctx.resume()
 
       try {
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0))
-        if (gen !== generation) return false
+        if (gen !== generation) return null
 
+        _duration = audioBuffer.duration
+        const startTime = ctx.currentTime
         const source = ctx.createBufferSource()
         source.buffer = audioBuffer
         source.connect(ctx.destination)
 
+        // Progress tracking via RAF
+        const trackProgress = () => {
+          if (gen !== generation) return
+          const elapsed = ctx.currentTime - startTime
+          _progress = Math.min(elapsed / audioBuffer.duration, 1)
+          _onProgress?.({ progress: _progress, duration: _duration, elapsed })
+          if (_progress < 1) {
+            progressRAF = requestAnimationFrame(trackProgress)
+          }
+        }
+
         return new Promise(resolve => {
           source.onended = () => {
+            stopProgressLoop()
+            _progress = 1
+            _onProgress?.({ progress: 1, duration: _duration, elapsed: _duration })
             currentSource = null
-            resolve(true)
+            _onEnd?.()
+            resolve({ duration: _duration })
           }
           currentSource = source
           source.start(0)
+          progressRAF = requestAnimationFrame(trackProgress)
         })
       } catch {
-        // Fallback: Audio element
-        if (gen !== generation) return false
+        // Fallback: Audio element (less precise progress)
+        if (gen !== generation) return null
         const blob = new Blob([arrayBuffer], { type: `audio/${format}` })
         const blobUrl = URL.createObjectURL(blob)
         const audio = new Audio(blobUrl)
 
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
+          audio.onloadedmetadata = () => {
+            _duration = audio.duration
+          }
+          audio.ontimeupdate = () => {
+            if (audio.duration > 0) {
+              _progress = audio.currentTime / audio.duration
+              _onProgress?.({ progress: _progress, duration: audio.duration, elapsed: audio.currentTime })
+            }
+          }
           audio.onended = () => {
             URL.revokeObjectURL(blobUrl)
+            _progress = 1
+            _onProgress?.({ progress: 1, duration: _duration, elapsed: _duration })
             currentSource = null
-            resolve(true)
+            _onEnd?.()
+            resolve({ duration: _duration })
           }
-          audio.onerror = (e) => {
+          audio.onerror = () => {
             URL.revokeObjectURL(blobUrl)
             currentSource = null
-            reject(new Error('Audio playback failed'))
+            _onEnd?.()
+            resolve(null)
           }
           currentSource = audio
-          audio.play().catch(reject)
+          audio.play().catch(() => {
+            URL.revokeObjectURL(blobUrl)
+            resolve(null)
+          })
         })
+      }
+    }
+
+    /**
+     * Fetch + play in one call (original API).
+     */
+    async function speak(text, opts = {}) {
+      if (!text?.trim()) return false
+      if (!apiKey && !opts.apiKey) throw new Error('TTS apiKey required')
+
+      const gen = ++generation
+      const arrayBuffer = await fetchAudio(text, opts)
+      if (!arrayBuffer || gen !== generation) return false
+      const result = await playBuffer(arrayBuffer)
+      return !!result
+    }
+
+    /**
+     * Get word-level timestamps via Whisper transcription of TTS output.
+     * Returns { words: [{ word, start, end }], duration } or null.
+     */
+    async function timestamps(text, opts = {}) {
+      const arrayBuffer = await fetchAudio(text, opts)
+      if (!arrayBuffer) return null
+
+      const base = cleanUrl(opts.baseUrl || baseUrl)
+      const key = opts.apiKey || apiKey
+      if (!base || !key) return null
+
+      try {
+        const blob = new Blob([arrayBuffer], { type: `audio/${format}` })
+        const form = new FormData()
+        form.append('file', blob, `speech.${format}`)
+        form.append('model', 'whisper-1')
+        form.append('response_format', 'verbose_json')
+        form.append('timestamp_granularities[]', 'word')
+
+        const res = await fetch(`${base}/v1/audio/transcriptions`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${key}` },
+          body: form,
+        })
+
+        if (!res.ok) return null
+        const data = await res.json()
+        if (!data.words?.length) return null
+
+        return {
+          words: data.words,  // [{ word, start, end }, ...]
+          duration: data.duration,
+          audio: arrayBuffer,  // include buffer so caller can playBuffer() it
+        }
+      } catch {
+        return null
       }
     }
 
     function stop() {
       generation++
+      stopProgressLoop()
       if (currentSource) {
         try {
           if (currentSource.stop) currentSource.stop()
@@ -180,6 +343,7 @@
         } catch {}
         currentSource = null
       }
+      resetPlaybackState()
     }
 
     function unlock() {
@@ -193,7 +357,24 @@
       audioCtx = null
     }
 
-    return { speak, stop, unlock, destroy, get isSpeaking() { return !!currentSource } }
+    return {
+      speak,
+      fetchAudio,
+      playBuffer,
+      timestamps,
+      stop,
+      unlock,
+      destroy,
+      /** Set progress callback: ({ progress, duration, elapsed }) => void */
+      onProgress(cb) { _onProgress = cb },
+      /** Set playback-end callback */
+      onEnd(cb) { _onEnd = cb },
+      get isSpeaking() { return !!currentSource },
+      get progress() { return _progress },
+      get duration() { return _duration },
+      get generation() { return generation },
+      bumpGeneration() { return ++generation },
+    }
   }
 
   // ── STT Engine ───────────────────────────────────────────────────
@@ -213,10 +394,6 @@
     let webSpeechRecognition = null
     let micDownTime = 0
     let micReleased = false
-
-    function cleanUrl(url) {
-      return (url || '').trim().replace(/\/+$/, '').replace(/\/v1$/, '')
-    }
 
     // ── Web Speech API ──
 
@@ -261,36 +438,6 @@
     }
 
     // ── Whisper API ──
-
-    async function webmToWav(blob) {
-      const ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)()
-      const arrayBuffer = await blob.arrayBuffer()
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-      const samples = audioBuffer.getChannelData(0)
-      const sampleRate = audioBuffer.sampleRate
-      const buffer = new ArrayBuffer(44 + samples.length * 2)
-      const view = new DataView(buffer)
-      const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)) }
-      writeStr(0, 'RIFF')
-      view.setUint32(4, 36 + samples.length * 2, true)
-      writeStr(8, 'WAVE')
-      writeStr(12, 'fmt ')
-      view.setUint32(16, 16, true)
-      view.setUint16(20, 1, true)
-      view.setUint16(22, 1, true)
-      view.setUint32(24, sampleRate, true)
-      view.setUint32(28, sampleRate * 2, true)
-      view.setUint16(32, 2, true)
-      view.setUint16(34, 16, true)
-      writeStr(36, 'data')
-      view.setUint32(40, samples.length * 2, true)
-      for (let i = 0; i < samples.length; i++) {
-        const s = Math.max(-1, Math.min(1, samples[i]))
-        view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
-      }
-      ctx.close()
-      return new Blob([buffer], { type: 'audio/wav' })
-    }
 
     function startWhisper(onResult, onError) {
       if (mediaRecorder) return false
@@ -343,12 +490,18 @@
       }
     }
 
-    async function transcribe(input) {
-      const base = cleanUrl(baseUrl)
-      if (!base || !apiKey) throw new Error('STT baseUrl and apiKey required')
+    /**
+     * Transcribe audio.
+     * Browser: pass Blob (auto-converts webm→wav)
+     * Node.js: pass file path (string) or Buffer
+     */
+    async function transcribe(input, opts = {}) {
+      const base = cleanUrl(opts.baseUrl || baseUrl)
+      const key = opts.apiKey || apiKey
+      if (!base || !key) throw new Error('STT baseUrl and apiKey required')
 
       const url = `${base}/v1/audio/transcriptions`
-      const headers = { 'Authorization': `Bearer ${apiKey}` }
+      const headers = { 'Authorization': `Bearer ${key}` }
 
       // Node.js: input is file path (string) or Buffer
       const isNode = typeof globalThis.window === 'undefined'
@@ -364,10 +517,16 @@
         parts.push('\r\n')
 
         // model part
-        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n`)
+        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${opts.model || model}\r\n`)
 
         // language part
         parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${language.split('-')[0]}\r\n`)
+
+        // response_format for timestamps
+        if (opts.timestamps) {
+          parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\nverbose_json\r\n`)
+          parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="timestamp_granularities[]"\r\n\r\nword\r\n`)
+        }
 
         parts.push(`--${boundary}--\r\n`)
 
@@ -393,7 +552,8 @@
             res.on('end', () => {
               try {
                 const result = JSON.parse(data)
-                resolve(result.text?.trim() || '')
+                if (opts.timestamps) resolve(result)
+                else resolve(result.text?.trim() || '')
               } catch { reject(new Error('Failed to parse transcription response')) }
             })
           })
@@ -404,12 +564,17 @@
         })
       }
 
-      // Browser: input is Blob
+      // Browser: input is Blob — convert webm→wav
       const wavBlob = await webmToWav(input)
       const form = new FormData()
       form.append('file', wavBlob, 'audio.wav')
-      form.append('model', model)
+      form.append('model', opts.model || model)
       form.append('language', language.split('-')[0])
+
+      if (opts.timestamps) {
+        form.append('response_format', 'verbose_json')
+        form.append('timestamp_granularities[]', 'word')
+      }
 
       const res = await fetch(url, { method: 'POST', headers, body: form })
       if (!res.ok) throw new Error(`Transcription failed: ${res.status}`)
@@ -417,8 +582,27 @@
       const ct = res.headers.get('content-type') || ''
       if (!ct.includes('json')) throw new Error('Transcription service unavailable')
 
-      const { text } = await res.json()
-      return text?.trim() || ''
+      const result = await res.json()
+      if (opts.timestamps) return result
+      return result.text?.trim() || ''
+    }
+
+    /**
+     * Transcribe with word-level timestamps.
+     * Returns { words: [{ word, start, end }], text, duration } or null.
+     */
+    async function transcribeWithTimestamps(input, opts = {}) {
+      try {
+        const result = await transcribe(input, { ...opts, timestamps: true })
+        if (!result?.words?.length) return null
+        return {
+          words: result.words,
+          text: result.text || '',
+          duration: result.duration,
+        }
+      } catch {
+        return null
+      }
     }
 
     // ── Public API ──
@@ -441,6 +625,7 @@
       startListening,
       stopListening,
       transcribe,
+      transcribeWithTimestamps,
       destroy,
       get isListening() { return !!(mediaRecorder || webSpeechRecognition) },
     }
@@ -453,23 +638,55 @@
     const tts = options.tts !== false ? createTTS(options.tts || {}) : null
     const stt = options.stt !== false ? createSTT(options.stt || {}) : null
 
-    // Mutual exclusion: stop TTS when user starts speaking
+    // Wire TTS progress/end events
+    if (tts) {
+      tts.onProgress(data => events.emit('progress', data))
+      tts.onEnd(() => events.emit('playbackEnd'))
+    }
+
     let _speaking = false
 
     const voice = {
       /** Speak text aloud */
       async speak(text, opts) {
         if (!tts) throw new Error('TTS not configured')
-        if (stt?.isListening) return false  // user is recording
+        if (stt?.isListening) return false
 
         _speaking = true
         events.emit('speaking', true)
         try {
-          await tts.speak(text, opts)
+          const result = await tts.speak(text, opts)
+          return result
         } finally {
           _speaking = false
           events.emit('speaking', false)
         }
+      },
+
+      /** Fetch TTS audio without playing */
+      async fetchAudio(text, opts) {
+        if (!tts) throw new Error('TTS not configured')
+        return tts.fetchAudio(text, opts)
+      },
+
+      /** Play an already-fetched ArrayBuffer */
+      async playBuffer(arrayBuffer) {
+        if (!tts) throw new Error('TTS not configured')
+        _speaking = true
+        events.emit('speaking', true)
+        try {
+          const result = await tts.playBuffer(arrayBuffer)
+          return result
+        } finally {
+          _speaking = false
+          events.emit('speaking', false)
+        }
+      },
+
+      /** Get word-level timestamps for TTS output */
+      async timestamps(text, opts) {
+        if (!tts) throw new Error('TTS not configured')
+        return tts.timestamps(text, opts)
       },
 
       /** Stop speaking */
@@ -482,7 +699,6 @@
       /** Start listening (push-to-talk) */
       startListening() {
         if (!stt) throw new Error('STT not configured')
-        // Stop TTS when user starts talking
         if (tts) tts.stop()
         _speaking = false
 
@@ -505,10 +721,16 @@
         events.emit('listening', false)
       },
 
-      /** Transcribe an audio blob directly */
-      async transcribe(blob) {
+      /** Transcribe audio blob or file */
+      async transcribe(input, opts) {
         if (!stt) throw new Error('STT not configured')
-        return stt.transcribe(blob)
+        return stt.transcribe(input, opts)
+      },
+
+      /** Transcribe with word-level timestamps */
+      async transcribeWithTimestamps(input, opts) {
+        if (!stt) throw new Error('STT not configured')
+        return stt.transcribeWithTimestamps(input, opts)
       },
 
       /** Unlock audio context (call on user gesture) */
@@ -521,6 +743,8 @@
       /** State */
       get isSpeaking() { return _speaking },
       get isListening() { return stt?.isListening || false },
+      get progress() { return tts?.progress || 0 },
+      get duration() { return tts?.duration || 0 },
 
       /** Cleanup */
       destroy() {
