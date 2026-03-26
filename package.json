@@ -2,7 +2,7 @@
   "name": "agentic-voice",
   "version": "0.1.0",
   "description": "Speech for AI apps — TTS + STT in one library",
-  "main": "voice.js",
+  "main": "agentic-voice.js",
   "scripts": {
     "test": "node test.js"
   },
