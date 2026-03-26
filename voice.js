@@ -343,18 +343,61 @@
       }
     }
 
-    async function transcribe(blob) {
+    async function transcribe(input) {
       const base = cleanUrl(baseUrl)
       if (!base || !apiKey) throw new Error('STT baseUrl and apiKey required')
 
-      const wavBlob = await webmToWav(blob)
+      const url = `${base}/v1/audio/transcriptions`
+      const headers = { 'Authorization': `Bearer ${apiKey}` }
+
+      // Node.js: input is file path (string) or Buffer
+      const isNode = typeof globalThis.window === 'undefined'
+      if (isNode && (typeof input === 'string' || Buffer.isBuffer(input))) {
+        const fs = require('fs')
+        const FormDataNode = require('form-data')
+        const form = new FormDataNode()
+        if (typeof input === 'string') {
+          // File path
+          form.append('file', fs.createReadStream(input), { filename: 'audio.wav' })
+        } else {
+          // Buffer
+          form.append('file', input, { filename: 'audio.wav', contentType: 'audio/wav' })
+        }
+        form.append('model', model)
+        form.append('language', language.split('-')[0])
+
+        const http = url.startsWith('https') ? require('https') : require('http')
+        const parsed = new (require('url').URL)(url)
+        return new Promise((resolve, reject) => {
+          const req = http.request({
+            hostname: parsed.hostname,
+            port: parsed.port || (url.startsWith('https') ? 443 : 80),
+            path: parsed.pathname,
+            method: 'POST',
+            headers: { ...form.getHeaders(), ...headers },
+            timeout: 30000,
+          }, (res) => {
+            let data = ''
+            res.on('data', c => data += c)
+            res.on('end', () => {
+              try {
+                const result = JSON.parse(data)
+                resolve(result.text?.trim() || '')
+              } catch { reject(new Error('Failed to parse transcription response')) }
+            })
+          })
+          req.on('error', reject)
+          req.on('timeout', () => { req.destroy(); reject(new Error('Transcription timeout')) })
+          form.pipe(req)
+        })
+      }
+
+      // Browser: input is Blob
+      const wavBlob = await webmToWav(input)
       const form = new FormData()
       form.append('file', wavBlob, 'audio.wav')
       form.append('model', model)
       form.append('language', language.split('-')[0])
-
-      const url = `${base}/v1/audio/transcriptions`
-      const headers = { 'Authorization': `Bearer ${apiKey}` }
 
       const res = await fetch(url, { method: 'POST', headers, body: form })
       if (!res.ok) throw new Error(`Transcription failed: ${res.status}`)
