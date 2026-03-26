@@ -354,17 +354,24 @@
       const isNode = typeof globalThis.window === 'undefined'
       if (isNode && (typeof input === 'string' || Buffer.isBuffer(input))) {
         const fs = require('fs')
-        const FormDataNode = require('form-data')
-        const form = new FormDataNode()
-        if (typeof input === 'string') {
-          // File path
-          form.append('file', fs.createReadStream(input), { filename: 'audio.wav' })
-        } else {
-          // Buffer
-          form.append('file', input, { filename: 'audio.wav', contentType: 'audio/wav' })
-        }
-        form.append('model', model)
-        form.append('language', language.split('-')[0])
+        const fileData = typeof input === 'string' ? fs.readFileSync(input) : input
+        const boundary = '----AgenticVoice' + Date.now().toString(36)
+        const parts = []
+
+        // file part
+        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n`)
+        parts.push(fileData)
+        parts.push('\r\n')
+
+        // model part
+        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n`)
+
+        // language part
+        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${language.split('-')[0]}\r\n`)
+
+        parts.push(`--${boundary}--\r\n`)
+
+        const body = Buffer.concat(parts.map(p => typeof p === 'string' ? Buffer.from(p) : p))
 
         const http = url.startsWith('https') ? require('https') : require('http')
         const parsed = new (require('url').URL)(url)
@@ -374,7 +381,11 @@
             port: parsed.port || (url.startsWith('https') ? 443 : 80),
             path: parsed.pathname,
             method: 'POST',
-            headers: { ...form.getHeaders(), ...headers },
+            headers: {
+              ...headers,
+              'Content-Type': `multipart/form-data; boundary=${boundary}`,
+              'Content-Length': body.length,
+            },
             timeout: 30000,
           }, (res) => {
             let data = ''
@@ -388,7 +399,8 @@
           })
           req.on('error', reject)
           req.on('timeout', () => { req.destroy(); reject(new Error('Transcription timeout')) })
-          form.pipe(req)
+          req.write(body)
+          req.end()
         })
       }
 
