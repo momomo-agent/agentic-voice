@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agentic-voice — Speech for AI apps</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+  <style>
+    :root {
+      --bg: #050505; --surface: #0f0f0f; --border: #1c1c1c;
+      --text: #e4e4e7; --text-2: #888; --accent: #a78bfa;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 3rem 1rem; }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .sub { color: var(--text-2); margin-bottom: 2rem; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; width: 100%; max-width: 500px; margin-bottom: 1rem; }
+    .card h3 { font-size: 0.85rem; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
+    label { display: block; font-size: 0.85rem; color: var(--text-2); margin-bottom: 0.3rem; }
+    input, select { width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; margin-bottom: 0.8rem; }
+    textarea { width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; resize: vertical; min-height: 60px; margin-bottom: 0.8rem; }
+    button { padding: 0.6rem 1.2rem; border-radius: 8px; border: none; font-size: 0.9rem; cursor: pointer; transition: all 0.15s; }
+    .btn-primary { background: var(--accent); color: #000; font-weight: 600; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-danger { background: #ef4444; color: #fff; }
+    .btn-mic { background: #22c55e; color: #fff; font-weight: 600; width: 100%; padding: 0.8rem; }
+    .btn-mic.recording { background: #ef4444; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.7; } }
+    .row { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; }
+    .row button { flex: 1; }
+    .progress-bar { width: 100%; height: 4px; background: var(--border); border-radius: 2px; margin: 0.8rem 0; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.1s; }
+    .status { font-size: 0.8rem; color: var(--text-2); min-height: 1.2rem; }
+    .transcript { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem; font-size: 0.9rem; min-height: 2rem; margin-top: 0.5rem; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>🎙️ agentic-voice</h1>
+  <p class="sub">Speech for AI apps — TTS + STT in one library</p>
+
+  <!-- Config -->
+  <div class="card">
+    <h3>⚙️ Configuration</h3>
+    <label>API Base URL</label>
+    <input id="baseUrl" value="https://api.openai.com" placeholder="https://api.openai.com">
+    <label>API Key</label>
+    <input id="apiKey" type="password" placeholder="sk-...">
+    <div class="row">
+      <div style="flex:1">
+        <label>Voice</label>
+        <select id="voiceSelect">
+          <option value="alloy">Alloy</option>
+          <option value="echo">Echo</option>
+          <option value="fable">Fable</option>
+          <option value="onyx">Onyx</option>
+          <option value="nova" selected>Nova</option>
+          <option value="shimmer">Shimmer</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label>STT Mode</label>
+        <select id="sttMode">
+          <option value="browser">Web Speech</option>
+          <option value="whisper">Whisper API</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- TTS -->
+  <div class="card">
+    <h3>🔊 Text-to-Speech</h3>
+    <textarea id="ttsText" placeholder="Type something to speak...">Hello! I'm agentic-voice, a zero-dependency speech library for AI apps.</textarea>
+    <div class="row">
+      <button class="btn-primary" onclick="doSpeak()">▶ Speak</button>
+      <button class="btn-danger" onclick="doStop()">⏹ Stop</button>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="status" id="ttsStatus"></div>
+  </div>
+
+  <!-- STT -->
+  <div class="card">
+    <h3>🎤 Speech-to-Text</h3>
+    <button class="btn-mic" id="micBtn" onmousedown="startMic()" onmouseup="stopMic()" ontouchstart="startMic()" ontouchend="stopMic()">
+      Hold to Talk
+    </button>
+    <div class="transcript" id="transcript">Transcription will appear here...</div>
+    <div class="status" id="sttStatus"></div>
+  </div>
+
+  <!-- Info -->
+  <div class="card">
+    <h3>📦 Usage</h3>
+    <pre style="font-size:0.8rem;color:var(--text-2);overflow-x:auto;white-space:pre-wrap">&lt;script src="agentic-voice.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+const voice = AgenticVoice.createVoice({
+  tts: { apiKey: 'sk-...', voice: 'nova' },
+  stt: { mode: 'browser' },
+})
+voice.on('progress', p => console.log(p.progress))
+voice.on('transcript', text => console.log(text))
+await voice.speak('Hello world')
+&lt;/script&gt;</pre>
+  </div>
+
+  <p class="sub" style="margin-top:1rem"><a href="https://github.com/momomo-agent/agentic-voice">GitHub</a> · Part of the <a href="https://github.com/momomo-agent/agentic">agentic</a> family</p>
+
+  <script src="../agentic-voice.js"></script>
+  <script>
+    let voice = null
+
+    function getVoice() {
+      if (voice) voice.destroy()
+      voice = AgenticVoice.createVoice({
+        tts: {
+          baseUrl: document.getElementById('baseUrl').value,
+          apiKey: document.getElementById('apiKey').value,
+          voice: document.getElementById('voiceSelect').value,
+        },
+        stt: {
+          mode: document.getElementById('sttMode').value,
+          baseUrl: document.getElementById('baseUrl').value,
+          apiKey: document.getElementById('apiKey').value,
+        },
+      })
+      voice.on('progress', ({ progress }) => {
+        document.getElementById('progressFill').style.width = (progress * 100) + '%'
+      })
+      voice.on('speaking', on => {
+        document.getElementById('ttsStatus').textContent = on ? 'Speaking...' : ''
+      })
+      voice.on('transcript', text => {
+        document.getElementById('transcript').textContent = text
+        document.getElementById('sttStatus').textContent = ''
+      })
+      voice.on('error', err => {
+        document.getElementById('sttStatus').textContent = err.message
+      })
+      return voice
+    }
+
+    async function doSpeak() {
+      const v = getVoice()
+      const text = document.getElementById('ttsText').value
+      document.getElementById('ttsStatus').textContent = 'Fetching audio...'
+      document.getElementById('progressFill').style.width = '0%'
+      try {
+        await v.speak(text)
+        document.getElementById('ttsStatus').textContent = 'Done'
+      } catch (e) {
+        document.getElementById('ttsStatus').textContent = 'Error: ' + e.message
+      }
+    }
+
+    function doStop() {
+      if (voice) voice.stop()
+      document.getElementById('progressFill').style.width = '0%'
+      document.getElementById('ttsStatus').textContent = 'Stopped'
+    }
+
+    function startMic() {
+      const v = getVoice()
+      v.unlock()
+      document.getElementById('micBtn').classList.add('recording')
+      document.getElementById('micBtn').textContent = '🔴 Recording...'
+      document.getElementById('sttStatus').textContent = 'Listening...'
+      v.startListening()
+    }
+
+    function stopMic() {
+      if (voice) voice.stopListening()
+      document.getElementById('micBtn').classList.remove('recording')
+      document.getElementById('micBtn').textContent = 'Hold to Talk'
+      document.getElementById('sttStatus').textContent = 'Processing...'
+    }
+  </script>
+</body>
+</html>
