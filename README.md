@@ -47,6 +47,38 @@ voice.on('listening', active => ...)
 voice.on('error', err => ...)
 ```
 
+## Providers
+
+### OpenAI (default)
+
+```js
+const voice = AgenticVoice.createVoice({
+  tts: { 
+    provider: 'openai',  // or omit (default)
+    apiKey: 'sk-...',
+    voice: 'alloy',
+    model: 'tts-1'
+  }
+})
+```
+
+### ElevenLabs
+
+```js
+const voice = AgenticVoice.createVoice({
+  tts: { 
+    provider: 'elevenlabs',
+    apiKey: 'xi_...',
+    voice: 'Rachel',  // voice ID
+    model: 'eleven_turbo_v2_5'
+  }
+})
+
+await voice.speak('Hello world')
+```
+
+**Available voices:** Get voice IDs from [ElevenLabs Voice Library](https://elevenlabs.io/voice-library)
+
 ## API
 
 ### `createVoice(options)`
@@ -60,10 +92,11 @@ voice.on('error', err => ...)
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `provider` | `openai` | `'openai'` or `'elevenlabs'` |
 | `baseUrl` | `https://api.openai.com` | OpenAI-compatible API base |
 | `apiKey` | — | API key |
 | `model` | `tts-1` | TTS model |
-| `voice` | `alloy` | Voice name |
+| `voice` | `alloy` | Voice name/ID |
 | `format` | `mp3` | Response format |
 | `proxyUrl` | — | CORS proxy URL |
 

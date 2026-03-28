@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ElevenLabs Test</title>
+</head>
+<body>
+  <h1>agentic-voice ElevenLabs Test</h1>
+  <button id="testOpenAI">Test OpenAI</button>
+  <button id="testElevenLabs">Test ElevenLabs</button>
+  <div id="status"></div>
+
+  <script src="./agentic-voice.js"></script>
+  <script>
+    const status = document.getElementById('status')
+
+    document.getElementById('testOpenAI').onclick = async () => {
+      status.textContent = 'Testing OpenAI...'
+      const voice = AgenticVoice.createVoice({
+        tts: {
+          provider: 'openai',
+          apiKey: prompt('OpenAI API Key:'),
+          voice: 'alloy'
+        }
+      })
+      
+      try {
+        await voice.speak('Hello from OpenAI')
+        status.textContent = '✅ OpenAI works!'
+      } catch (e) {
+        status.textContent = '❌ ' + e.message
+      }
+    }
+
+    document.getElementById('testElevenLabs').onclick = async () => {
+      status.textContent = 'Testing ElevenLabs...'
+      const voice = AgenticVoice.createVoice({
+        tts: {
+          provider: 'elevenlabs',
+          apiKey: prompt('ElevenLabs API Key (xi_...):'),
+          voice: prompt('Voice ID (e.g. Rachel):') || 'Rachel',
+          model: 'eleven_turbo_v2_5'
+        }
+      })
+      
+      try {
+        await voice.speak('Hello from ElevenLabs')
+        status.textContent = '✅ ElevenLabs works!'
+      } catch (e) {
+        status.textContent = '❌ ' + e.message
+      }
+    }
+  </script>
+</body>
+</html>

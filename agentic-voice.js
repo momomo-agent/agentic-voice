@@ -111,6 +111,7 @@
 
   function createTTS(config = {}) {
     const {
+      provider = 'openai',
       baseUrl = 'https://api.openai.com',
       apiKey = '',
       model = 'tts-1',
@@ -156,6 +157,47 @@
       if (!text?.trim()) return null
       if (!apiKey && !opts.apiKey) return null
 
+      const currentProvider = opts.provider || provider
+
+      // ElevenLabs
+      if (currentProvider === 'elevenlabs') {
+        const voiceId = opts.voice || voice
+        const modelId = opts.model || model || 'eleven_turbo_v2_5'
+        const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`
+        
+        const headers = {
+          'xi-api-key': opts.apiKey || apiKey,
+          'Content-Type': 'application/json',
+        }
+
+        const body = JSON.stringify({
+          text,
+          model_id: modelId,
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+          }
+        })
+
+        let res, lastErr
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            res = await fetch(url, { method: 'POST', headers, body })
+            break
+          } catch (err) {
+            lastErr = err
+            if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+          }
+        }
+        if (!res) throw lastErr
+        if (!res.ok) throw new Error(`ElevenLabs TTS failed: ${res.status} ${res.statusText}`)
+
+        const arrayBuffer = await res.arrayBuffer()
+        if (arrayBuffer.byteLength === 0) return null
+        return arrayBuffer
+      }
+
+      // OpenAI (default)
       const base = cleanUrl(opts.baseUrl || baseUrl)
       const url = `${base}/v1/audio/speech`
       const targetUrl = proxyUrl ? proxyUrl : url
