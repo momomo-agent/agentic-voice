@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Test ElevenLabs Voice</title>
+</head>
+<body>
+  <h1>ElevenLabs Voice Test</h1>
+  <button id="testTTS">Test TTS (Lucy)</button>
+  <button id="testSTT">Test STT (录音)</button>
+  <div id="status"></div>
+  <div id="result"></div>
+
+  <script type="module">
+    import { createVoice } from './agentic-voice.js'
+
+    const status = document.getElementById('status')
+    const result = document.getElementById('result')
+
+    const voice = createVoice({
+      tts: {
+        provider: 'elevenlabs',
+        apiKey: 'sk_b0f355a25dea64a975f9aef7ad791a19c4f5e266143caecc',
+        voice: 'jsCqWAovK2LkecY7zXl4',  // Lucy
+        model: 'eleven_turbo_v2_5',
+      },
+      stt: {
+        provider: 'elevenlabs',
+        apiKey: 'sk_b0f355a25dea64a975f9aef7ad791a19c4f5e266143caecc',
+        model: 'scribe_v2',
+      }
+    })
+
+    voice.on('transcript', text => {
+      result.textContent = 'Transcript: ' + text
+    })
+
+    voice.on('error', err => {
+      result.textContent = 'Error: ' + err.message
+    })
+
+    document.getElementById('testTTS').onclick = async () => {
+      try {
+        status.textContent = 'Unlocking audio...'
+        
+        // 立即播放一个空音频来解锁
+        const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADhAC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAA4T/8kj/AAAAAAAAAAAAAAAAAAAAAP/7kGQAD/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kGQAD/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ==')
+        await silentAudio.play()
+        
+        voice.unlock()
+        
+        status.textContent = 'Speaking...'
+        const success = await voice.speak('Hello, this is Lucy speaking from ElevenLabs.')
+        
+        if (success) {
+          status.textContent = 'Done!'
+        } else {
+          status.textContent = 'Speak failed'
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message
+        console.error(e)
+      }
+    }
+
+    document.getElementById('testSTT').onclick = () => {
+      status.textContent = 'Recording... (hold button)'
+      voice.startListening()
+    }
+
+    document.getElementById('testSTT').onmouseup = () => {
+      voice.stopListening()
+      status.textContent = 'Processing...'
+    }
+  </script>
+</body>
+</html>

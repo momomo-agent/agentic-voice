@@ -244,81 +244,52 @@
       stop()
       resetPlaybackState()
 
-      const ctx = getAudioCtx()
-      if (ctx.state === 'suspended') await ctx.resume()
+      // Validate arrayBuffer
+      if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+        console.error('[TTS] Invalid arrayBuffer')
+        return null
+      }
 
-      try {
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0))
-        if (gen !== generation) return null
+      console.log('[TTS] Playing buffer, size:', arrayBuffer.byteLength)
 
-        _duration = audioBuffer.duration
-        const startTime = ctx.currentTime
-        const source = ctx.createBufferSource()
-        source.buffer = audioBuffer
-        source.connect(ctx.destination)
+      // Use Audio element directly (skip AudioContext)
+      const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' })
+      const blobUrl = URL.createObjectURL(blob)
+      const audio = new Audio()
+      audio.src = blobUrl
 
-        // Progress tracking via RAF
-        const trackProgress = () => {
-          if (gen !== generation) return
-          const elapsed = ctx.currentTime - startTime
-          _progress = Math.min(elapsed / audioBuffer.duration, 1)
-          _onProgress?.({ progress: _progress, duration: _duration, elapsed })
-          if (_progress < 1) {
-            progressRAF = requestAnimationFrame(trackProgress)
+      return new Promise(resolve => {
+        audio.onloadedmetadata = () => {
+          _duration = audio.duration
+        }
+        audio.ontimeupdate = () => {
+          if (audio.duration > 0) {
+            _progress = audio.currentTime / audio.duration
+            _onProgress?.({ progress: _progress, duration: audio.duration, elapsed: audio.currentTime })
           }
         }
-
-        return new Promise(resolve => {
-          source.onended = () => {
-            stopProgressLoop()
-            _progress = 1
-            _onProgress?.({ progress: 1, duration: _duration, elapsed: _duration })
-            currentSource = null
-            _onEnd?.()
-            resolve({ duration: _duration })
-          }
-          currentSource = source
-          source.start(0)
-          progressRAF = requestAnimationFrame(trackProgress)
+        audio.onended = () => {
+          URL.revokeObjectURL(blobUrl)
+          _progress = 1
+          _onProgress?.({ progress: 1, duration: _duration, elapsed: _duration })
+          currentSource = null
+          _onEnd?.()
+          resolve({ duration: _duration })
+        }
+        audio.onerror = (e) => {
+          console.error('[TTS] Audio error:', audio.error)
+          URL.revokeObjectURL(blobUrl)
+          currentSource = null
+          _onEnd?.()
+          resolve(null)
+        }
+        currentSource = audio
+        audio.play().catch(e => {
+          console.error('[TTS] Play failed:', e)
+          URL.revokeObjectURL(blobUrl)
+          resolve(null)
         })
-      } catch {
-        // Fallback: Audio element (less precise progress)
-        if (gen !== generation) return null
-        const blob = new Blob([arrayBuffer], { type: `audio/${format}` })
-        const blobUrl = URL.createObjectURL(blob)
-        const audio = new Audio(blobUrl)
-
-        return new Promise((resolve) => {
-          audio.onloadedmetadata = () => {
-            _duration = audio.duration
-          }
-          audio.ontimeupdate = () => {
-            if (audio.duration > 0) {
-              _progress = audio.currentTime / audio.duration
-              _onProgress?.({ progress: _progress, duration: audio.duration, elapsed: audio.currentTime })
-            }
-          }
-          audio.onended = () => {
-            URL.revokeObjectURL(blobUrl)
-            _progress = 1
-            _onProgress?.({ progress: 1, duration: _duration, elapsed: _duration })
-            currentSource = null
-            _onEnd?.()
-            resolve({ duration: _duration })
-          }
-          audio.onerror = () => {
-            URL.revokeObjectURL(blobUrl)
-            currentSource = null
-            _onEnd?.()
-            resolve(null)
-          }
-          currentSource = audio
-          audio.play().catch(() => {
-            URL.revokeObjectURL(blobUrl)
-            resolve(null)
-          })
-        })
-      }
+      })
     }
 
     /**
@@ -329,6 +300,56 @@
       if (!apiKey && !opts.apiKey) throw new Error('TTS apiKey required')
 
       const gen = ++generation
+      stop()
+      resetPlaybackState()
+
+      const currentProvider = opts.provider || provider
+
+      // ElevenLabs - direct play
+      if (currentProvider === 'elevenlabs') {
+        const voiceId = opts.voice || voice
+        const modelId = opts.model || model || 'eleven_turbo_v2_5'
+        const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`
+        
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'xi-api-key': opts.apiKey || apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text,
+            model_id: modelId,
+            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+          })
+        })
+
+        if (!res.ok) return false
+        const arrayBuffer = await res.arrayBuffer()
+        if (gen !== generation) return false
+
+        const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' })
+        const blobUrl = URL.createObjectURL(blob)
+        const audio = new Audio()
+        audio.src = blobUrl
+
+        return new Promise(resolve => {
+          audio.onended = () => {
+            URL.revokeObjectURL(blobUrl)
+            currentSource = null
+            _onEnd?.()
+            resolve(true)
+          }
+          audio.onerror = () => {
+            URL.revokeObjectURL(blobUrl)
+            resolve(false)
+          }
+          currentSource = audio
+          audio.play().catch(() => resolve(false))
+        })
+      }
+
+      // OpenAI - use fetchAudio + playBuffer
       const arrayBuffer = await fetchAudio(text, opts)
       if (!arrayBuffer || gen !== generation) return false
       const result = await playBuffer(arrayBuffer)

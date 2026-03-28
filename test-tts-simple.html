@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Test ElevenLabs TTS</title>
+</head>
+<body>
+  <h1>ElevenLabs TTS Test</h1>
+  <button id="testTTS">Test TTS (Lucy)</button>
+  <div id="status"></div>
+
+  <script>
+    const status = document.getElementById('status')
+    const apiKey = 'sk_b0f355a25dea64a975f9aef7ad791a19c4f5e266143caecc'
+    const voiceId = 'jsCqWAovK2LkecY7zXl4'
+
+    document.getElementById('testTTS').onclick = async () => {
+      try {
+        status.textContent = 'Fetching audio...'
+        
+        const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+          method: 'POST',
+          headers: {
+            'xi-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: 'Hello, this is Lucy speaking from ElevenLabs.',
+            model_id: 'eleven_turbo_v2_5',
+          })
+        })
+
+        if (!res.ok) {
+          status.textContent = `API error: ${res.status}`
+          return
+        }
+
+        const arrayBuffer = await res.arrayBuffer()
+        status.textContent = `Got ${arrayBuffer.byteLength} bytes, playing...`
+
+        const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' })
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        
+        audio.onended = () => {
+          URL.revokeObjectURL(url)
+          status.textContent = 'Done!'
+        }
+        
+        audio.onerror = (e) => {
+          status.textContent = 'Play error: ' + e.message
+        }
+
+        await audio.play()
+        status.textContent = 'Playing...'
+        
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message
+        console.error(e)
+      }
+    }
+  </script>
+</body>
+</html>

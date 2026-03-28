@@ -6,6 +6,16 @@
   "scripts": {
     "test": "node test.js"
   },
-  "keywords": ["ai", "tts", "stt", "voice", "speech", "agentic"],
-  "license": "MIT"
+  "keywords": [
+    "ai",
+    "tts",
+    "stt",
+    "voice",
+    "speech",
+    "agentic"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
 }
