@@ -869,3 +869,6 @@
 
   return { createVoice, createTTS, createSTT }
 })
+
+// ES module export
+export const { createVoice, createTTS, createSTT } = typeof window !== 'undefined' && window.AgenticVoice || AgenticVoice
