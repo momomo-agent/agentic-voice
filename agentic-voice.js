@@ -512,6 +512,7 @@
     // ── Whisper API ──
 
     function startWhisper(onResult, onError) {
+      console.log('[STT] startWhisper called, mediaRecorder:', mediaRecorder)
       if (mediaRecorder) return false
       micDownTime = Date.now()
       micReleased = false
@@ -522,33 +523,48 @@
       }
 
       navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        console.log('[STT] Got media stream')
         if (micReleased) {
+          console.log('[STT] Mic already released, stopping stream')
           stream.getTracks().forEach(t => t.stop())
           return
         }
 
         const chunks = []
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-        mediaRecorder.ondataavailable = e => chunks.push(e.data)
+        console.log('[STT] MediaRecorder created')
+        
+        mediaRecorder.ondataavailable = e => {
+          console.log('[STT] Data available:', e.data.size, 'bytes')
+          chunks.push(e.data)
+        }
+        
         mediaRecorder.onstop = async () => {
+          console.log('[STT] MediaRecorder stopped')
           stream.getTracks().forEach(t => t.stop())
           const held = Date.now() - micDownTime
+          console.log('[STT] Held for', held, 'ms')
           mediaRecorder = null
 
           if (held < minHoldMs) return
 
           const blob = new Blob(chunks, { type: 'audio/webm' })
+          console.log('[STT] Created blob:', blob.size, 'bytes')
           try {
             const text = await transcribe(blob)
+            console.log('[STT] Transcribe result:', text)
             if (text) onResult?.(text)
             else onError?.(new Error('No speech detected'))
           } catch (e) {
+            console.error('[STT] Transcribe error:', e)
             onError?.(e)
           }
         }
 
         mediaRecorder.start()
+        console.log('[STT] Recording started')
       }).catch(e => {
+        console.error('[STT] getUserMedia error:', e)
         onError?.(new Error('Microphone unavailable: ' + e.message))
       })
 
@@ -560,6 +576,8 @@
       if (mediaRecorder && mediaRecorder.state === 'recording') {
         mediaRecorder.stop()
       }
+      // 立即清理，不等 onstop
+      mediaRecorder = null
     }
 
     /**
@@ -622,17 +640,21 @@
         }
 
         // Browser
+        console.log('[STT] Transcribing audio blob, size:', input.size)
         const form = new FormData()
         form.append('file', input, 'audio.webm')
         form.append('model_id', modelId)
 
+        console.log('[STT] Sending to ElevenLabs...')
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'xi-api-key': key },
           body: form
         })
+        console.log('[STT] Response:', res.status, res.ok)
         if (!res.ok) throw new Error(`ElevenLabs STT failed: ${res.status}`)
         const result = await res.json()
+        console.log('[STT] Result:', result)
         return result.text?.trim() || ''
       }
 
