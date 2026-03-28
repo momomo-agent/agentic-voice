@@ -97,7 +97,7 @@
     </button>
     
     <button id="testSTT" class="btn btn-secondary">
-      🎤 Test Speech-to-Text (Hold to Record)
+      🎤 Start Recording
     </button>
     
     <div id="status" class="status">
@@ -172,26 +172,24 @@
     }
 
     // STT
-    sttBtn.onmousedown = () => {
-      sttBtn.classList.add('recording')
-      setStatus('🎤 Recording... (release to stop)', 'loading')
-      voice.startListening()
-    }
-
-    sttBtn.onmouseup = () => {
-      sttBtn.classList.remove('recording')
-      setStatus('⏳ Processing...', 'loading')
-      voice.stopListening()
-    }
-
-    sttBtn.ontouchstart = (e) => {
-      e.preventDefault()
-      sttBtn.onmousedown()
-    }
-
-    sttBtn.ontouchend = (e) => {
-      e.preventDefault()
-      sttBtn.onmouseup()
+    let isRecording = false
+    
+    sttBtn.onclick = () => {
+      if (isRecording) {
+        // 停止录音
+        sttBtn.classList.remove('recording')
+        sttBtn.textContent = '🎤 Start Recording'
+        setStatus('⏳ Processing...', 'loading')
+        voice.stopListening()
+        isRecording = false
+      } else {
+        // 开始录音
+        sttBtn.classList.add('recording')
+        sttBtn.textContent = '⏹️ Stop Recording'
+        setStatus('🎤 Recording...', 'loading')
+        voice.startListening()
+        isRecording = true
+      }
     }
   </script>
 </body>

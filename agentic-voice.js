@@ -646,11 +646,16 @@
         form.append('model_id', modelId)
 
         console.log('[STT] Sending to ElevenLabs...')
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒超时
+        
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'xi-api-key': key },
-          body: form
+          body: form,
+          signal: controller.signal
         })
+        clearTimeout(timeoutId)
         console.log('[STT] Response:', res.status, res.ok)
         if (!res.ok) throw new Error(`ElevenLabs STT failed: ${res.status}`)
         const result = await res.json()
