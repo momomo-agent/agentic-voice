@@ -647,20 +647,36 @@
 
         console.log('[STT] Sending to ElevenLabs...')
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒超时
+        const timeoutId = setTimeout(() => {
+          console.log('[STT] Timeout! Aborting...')
+          controller.abort()
+        }, 15000) // 15秒超时（更合理）
         
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'xi-api-key': key },
-          body: form,
-          signal: controller.signal
-        })
-        clearTimeout(timeoutId)
-        console.log('[STT] Response:', res.status, res.ok)
-        if (!res.ok) throw new Error(`ElevenLabs STT failed: ${res.status}`)
-        const result = await res.json()
-        console.log('[STT] Result:', result)
-        return result.text?.trim() || ''
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'xi-api-key': key },
+            body: form,
+            signal: controller.signal
+          })
+          clearTimeout(timeoutId)
+          console.log('[STT] Response:', res.status, res.ok)
+          if (!res.ok) {
+            const errorText = await res.text()
+            console.error('[STT] Error response:', errorText)
+            throw new Error(`ElevenLabs STT failed: ${res.status}`)
+          }
+          const result = await res.json()
+          console.log('[STT] Result:', result)
+          return result.text?.trim() || ''
+        } catch (e) {
+          clearTimeout(timeoutId)
+          console.error('[STT] Fetch error:', e.name, e.message)
+          if (e.name === 'AbortError') {
+            throw new Error('Transcription timeout (15s)')
+          }
+          throw e
+        }
       }
 
       // OpenAI (default)
