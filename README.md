@@ -69,12 +69,20 @@ const voice = AgenticVoice.createVoice({
   tts: { 
     provider: 'elevenlabs',
     apiKey: 'xi_...',
-    voice: 'Rachel',  // voice ID
+    voice: 'Rachel',
     model: 'eleven_turbo_v2_5'
+  },
+  stt: {
+    provider: 'elevenlabs',
+    apiKey: 'xi_...',
+    model: 'scribe'  // optional
   }
 })
 
 await voice.speak('Hello world')
+
+// Transcribe
+const text = await voice.transcribe(audioBlob)
 ```
 
 **Available voices:** Get voice IDs from [ElevenLabs Voice Library](https://elevenlabs.io/voice-library)
@@ -104,11 +112,12 @@ await voice.speak('Hello world')
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `provider` | `openai` | `'openai'` or `'elevenlabs'` |
 | `mode` | `browser` | `'browser'` (Web Speech API) or `'whisper'` |
 | `baseUrl` | `https://api.openai.com` | Whisper API base |
 | `apiKey` | — | API key (whisper mode) |
 | `language` | `zh-CN` | Language code |
-| `model` | `whisper-1` | Whisper model |
+| `model` | `whisper-1` | Whisper model (or `'scribe'` for ElevenLabs) |
 | `minHoldMs` | `300` | Minimum hold time for push-to-talk |
 
 ### Voice Instance

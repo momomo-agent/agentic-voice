@@ -423,6 +423,7 @@
 
   function createSTT(config = {}) {
     const {
+      provider = 'openai',
       mode = 'browser',  // 'browser' (Web Speech API) or 'whisper'
       baseUrl = 'https://api.openai.com',
       apiKey = '',
@@ -538,9 +539,77 @@
      * Node.js: pass file path (string) or Buffer
      */
     async function transcribe(input, opts = {}) {
-      const base = cleanUrl(opts.baseUrl || baseUrl)
+      const currentProvider = opts.provider || provider
       const key = opts.apiKey || apiKey
-      if (!base || !key) throw new Error('STT baseUrl and apiKey required')
+      if (!key) throw new Error('STT apiKey required')
+
+      // ElevenLabs
+      if (currentProvider === 'elevenlabs') {
+        const url = 'https://api.elevenlabs.io/v1/speech-to-text'
+        const modelId = opts.model || 'scribe_v2'
+        const isNode = typeof globalThis.window === 'undefined'
+        
+        if (isNode && (typeof input === 'string' || Buffer.isBuffer(input))) {
+          const fs = require('fs')
+          const fileData = typeof input === 'string' ? fs.readFileSync(input) : input
+          const boundary = '----AgenticVoice' + Date.now().toString(36)
+          const parts = []
+
+          parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n`)
+          parts.push(fileData)
+          parts.push(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model_id"\r\n\r\n${modelId}\r\n`)
+          parts.push(`--${boundary}--\r\n`)
+
+          const body = Buffer.concat(parts.map(p => typeof p === 'string' ? Buffer.from(p) : p))
+
+          const https = require('https')
+          const parsed = new (require('url').URL)(url)
+          return new Promise((resolve, reject) => {
+            const req = https.request({
+              hostname: parsed.hostname,
+              path: parsed.pathname,
+              method: 'POST',
+              headers: {
+                'xi-api-key': key,
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': body.length,
+              },
+              timeout: 30000,
+            }, (res) => {
+              let data = ''
+              res.on('data', c => data += c)
+              res.on('end', () => {
+                try {
+                  const result = JSON.parse(data)
+                  resolve(result.text?.trim() || '')
+                } catch { reject(new Error('Failed to parse ElevenLabs response')) }
+              })
+            })
+            req.on('error', reject)
+            req.on('timeout', () => { req.destroy(); reject(new Error('Transcription timeout')) })
+            req.write(body)
+            req.end()
+          })
+        }
+
+        // Browser
+        const form = new FormData()
+        form.append('file', input, 'audio.webm')
+        form.append('model_id', modelId)
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'xi-api-key': key },
+          body: form
+        })
+        if (!res.ok) throw new Error(`ElevenLabs STT failed: ${res.status}`)
+        const result = await res.json()
+        return result.text?.trim() || ''
+      }
+
+      // OpenAI (default)
+      const base = cleanUrl(opts.baseUrl || baseUrl)
+      if (!base) throw new Error('STT baseUrl required')
 
       const url = `${base}/v1/audio/transcriptions`
       const headers = { 'Authorization': `Bearer ${key}` }
