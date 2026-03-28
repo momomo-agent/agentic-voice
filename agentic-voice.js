@@ -324,28 +324,36 @@
           })
         })
 
+        console.log('[TTS] Fetch response:', res.status, res.ok)
         if (!res.ok) return false
         const arrayBuffer = await res.arrayBuffer()
-        if (gen !== generation) return false
+        console.log('[TTS] Got arrayBuffer:', arrayBuffer.byteLength, 'bytes')
 
         const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' })
         const blobUrl = URL.createObjectURL(blob)
+        console.log('[TTS] Created blob URL:', blobUrl)
         const audio = new Audio()
         audio.src = blobUrl
+        console.log('[TTS] Audio element created, src set')
 
         return new Promise(resolve => {
           audio.onended = () => {
+            console.log('[TTS] Audio ended')
             URL.revokeObjectURL(blobUrl)
             currentSource = null
             _onEnd?.()
             resolve(true)
           }
-          audio.onerror = () => {
+          audio.onerror = (e) => {
+            console.error('[TTS] Audio error:', audio.error)
             URL.revokeObjectURL(blobUrl)
             resolve(false)
           }
           currentSource = audio
-          audio.play().catch(() => resolve(false))
+          audio.play().catch(e => {
+            console.error('[TTS] Play failed:', e)
+            resolve(false)
+          })
         })
       }
 

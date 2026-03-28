@@ -41,16 +41,15 @@
 
     document.getElementById('testTTS').onclick = async () => {
       try {
-        status.textContent = 'Unlocking audio...'
-        
-        // 立即播放一个空音频来解锁
-        const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADhAC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAA4T/8kj/AAAAAAAAAAAAAAAAAAAAAP/7kGQAD/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kGQAD/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ==')
-        await silentAudio.play()
+        console.log('[Test] Starting TTS test...')
+        status.textContent = 'Speaking...'
         
         voice.unlock()
+        console.log('[Test] Voice unlocked')
         
-        status.textContent = 'Speaking...'
+        console.log('[Test] Calling voice.speak()...')
         const success = await voice.speak('Hello, this is Lucy speaking from ElevenLabs.')
+        console.log('[Test] voice.speak() returned:', success)
         
         if (success) {
           status.textContent = 'Done!'
@@ -59,7 +58,7 @@
         }
       } catch (e) {
         status.textContent = 'Error: ' + e.message
-        console.error(e)
+        console.error('[Test] Error:', e)
       }
     }
 

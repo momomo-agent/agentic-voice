@@ -1,22 +1,40 @@
 const { chromium } = require('playwright')
 
 async function test() {
-  const browser = await chromium.launch({ headless: false })
-  const page = await browser.newPage()
+  const browser = await chromium.launch({ 
+    headless: false,
+    args: ['--autoplay-policy=no-user-gesture-required', '--ignore-certificate-errors']
+  })
+  const context = await browser.newContext({
+    permissions: ['microphone'],
+    ignoreHTTPSErrors: true
+  })
+  const page = await context.newPage()
   
   // 监听控制台
-  page.on('console', msg => console.log('[Browser]', msg.text()))
+  page.on('console', msg => {
+    const type = msg.type()
+    const text = msg.text()
+    console.log(`[${type}]`, text)
+  })
   
-  await page.goto('http://localhost:8765/test-browser.html')
+  // 监听错误
+  page.on('pageerror', err => {
+    console.error('[Page Error]', err.message)
+  })
   
-  console.log('Clicking TTS button...')
+  await page.goto('https://localhost:8766/test-browser.html', {
+    waitUntil: 'networkidle'
+  })
+  
+  console.log('\n=== Clicking TTS button ===')
   await page.click('#testTTS')
   
-  // 等待状态更新
-  await page.waitForTimeout(5000)
+  // 等待播放
+  await page.waitForTimeout(8000)
   
   const status = await page.textContent('#status')
-  console.log('Status:', status)
+  console.log('\nFinal status:', status)
   
   await browser.close()
 }

@@ -11,10 +11,13 @@ https.createServer(options, (req, res) => {
   const filePath = req.url === '/' ? '/test-browser.html' : req.url
   const fullPath = path.join(__dirname, filePath)
   
+  console.log('[Request]', req.url, '→', fullPath)
+  
   fs.readFile(fullPath, (err, data) => {
     if (err) {
+      console.error('[404]', fullPath)
       res.writeHead(404)
-      res.end('Not found')
+      res.end('Not found: ' + req.url)
       return
     }
     
@@ -25,6 +28,7 @@ https.createServer(options, (req, res) => {
       '.mp3': 'audio/mpeg'
     }[ext] || 'text/plain'
     
+    console.log('[200]', req.url, contentType)
     res.writeHead(200, { 'Content-Type': contentType })
     res.end(data)
   })
