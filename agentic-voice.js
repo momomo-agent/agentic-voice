@@ -467,6 +467,48 @@
     let micDownTime = 0
     let micReleased = false
 
+    // ── AudioBuffer to WAV converter ──
+    
+    function audioBufferToWav(audioBuffer) {
+      const numChannels = 1
+      const sampleRate = audioBuffer.sampleRate
+      const channelData = audioBuffer.getChannelData(0)
+      const samples = new Int16Array(channelData.length)
+      
+      for (let i = 0; i < channelData.length; i++) {
+        samples[i] = Math.max(-1, Math.min(1, channelData[i])) * 0x7FFF
+      }
+      
+      const buffer = new ArrayBuffer(44 + samples.length * 2)
+      const view = new DataView(buffer)
+      
+      const writeString = (offset, string) => {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i))
+        }
+      }
+      
+      writeString(0, 'RIFF')
+      view.setUint32(4, 36 + samples.length * 2, true)
+      writeString(8, 'WAVE')
+      writeString(12, 'fmt ')
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true)
+      view.setUint16(22, numChannels, true)
+      view.setUint32(24, sampleRate, true)
+      view.setUint32(28, sampleRate * numChannels * 2, true)
+      view.setUint16(32, numChannels * 2, true)
+      view.setUint16(34, 16, true)
+      writeString(36, 'data')
+      view.setUint32(40, samples.length * 2, true)
+      
+      for (let i = 0; i < samples.length; i++) {
+        view.setInt16(44 + i * 2, samples[i], true)
+      }
+      
+      return new Blob([buffer], { type: 'audio/wav' })
+    }
+
     // ── Web Speech API ──
 
     function startWebSpeech(onResult, onError) {
@@ -641,25 +683,30 @@
 
         // Browser
         console.log('[STT] Transcribing audio blob, size:', input.size)
-        const form = new FormData()
-        form.append('file', input, 'audio.webm')
-        form.append('model_id', modelId)
-
-        console.log('[STT] Sending to ElevenLabs...')
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => {
-          console.log('[STT] Timeout! Aborting...')
-          controller.abort()
-        }, 15000) // 15秒超时（更合理）
         
+        // Convert webm to wav for better accuracy
+        console.log('[STT] Converting webm to wav...')
         try {
+          const audioContext = new AudioContext({ sampleRate: 16000 })
+          const arrayBuffer = await input.arrayBuffer()
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+          console.log('[STT] Decoded:', audioBuffer.duration.toFixed(2) + 's')
+          
+          // Convert to WAV
+          const wavBlob = audioBufferToWav(audioBuffer)
+          console.log('[STT] WAV created:', wavBlob.size, 'bytes')
+          
+          const form = new FormData()
+          form.append('file', wavBlob, 'audio.wav')
+          form.append('model_id', modelId)
+          
+          console.log('[STT] Sending WAV to ElevenLabs...')
+          
           const res = await fetch(url, {
             method: 'POST',
             headers: { 'xi-api-key': key },
-            body: form,
-            signal: controller.signal
+            body: form
           })
-          clearTimeout(timeoutId)
           console.log('[STT] Response:', res.status, res.ok)
           if (!res.ok) {
             const errorText = await res.text()
@@ -670,11 +717,7 @@
           console.log('[STT] Result:', result)
           return result.text?.trim() || ''
         } catch (e) {
-          clearTimeout(timeoutId)
-          console.error('[STT] Fetch error:', e.name, e.message)
-          if (e.name === 'AbortError') {
-            throw new Error('Transcription timeout (15s)')
-          }
+          console.error('[STT] Error:', e.name, e.message)
           throw e
         }
       }

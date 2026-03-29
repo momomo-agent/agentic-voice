@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STT Debug</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+    button { padding: 12px 24px; font-size: 16px; margin: 10px 0; cursor: pointer; }
+    #log { margin-top: 20px; white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
+    .info { color: #4ec9b0; }
+    .error { color: #f48771; }
+    .success { color: #b5cea8; }
+  </style>
+</head>
+<body>
+  <h2>STT Debug Logger</h2>
+  <button id="start">Start Recording</button>
+  <button id="stop" disabled>Stop Recording</button>
+  <div id="log"></div>
+
+  <script type="module">
+    const logEl = document.getElementById('log')
+    const startBtn = document.getElementById('start')
+    const stopBtn = document.getElementById('stop')
+    
+    function log(msg, type = 'info') {
+      const time = new Date().toLocaleTimeString()
+      logEl.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`
+      logEl.scrollTop = logEl.scrollHeight
+    }
+
+    let mediaRecorder = null
+    let chunks = []
+    let startTime = 0
+
+    startBtn.onclick = async () => {
+      try {
+        log('Requesting microphone...', 'info')
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        log('✓ Microphone granted', 'success')
+        
+        chunks = []
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+        
+        mediaRecorder.ondataavailable = e => {
+          log(`Data chunk: ${e.data.size} bytes`, 'info')
+          chunks.push(e.data)
+        }
+        
+        mediaRecorder.onstop = async () => {
+          log('MediaRecorder stopped', 'info')
+          stream.getTracks().forEach(t => t.stop())
+          
+          const blob = new Blob(chunks, { type: 'audio/webm' })
+          log(`Blob created: ${blob.size} bytes`, 'info')
+          
+          // 转换 webm → wav
+          log('Converting webm to wav...', 'info')
+          try {
+            const audioContext = new AudioContext({ sampleRate: 16000 })
+            const arrayBuffer = await blob.arrayBuffer()
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+            log(`Decoded: ${audioBuffer.duration.toFixed(2)}s, ${audioBuffer.sampleRate}Hz`, 'info')
+            
+            // 转 WAV
+            const wavBlob = audioBufferToWav(audioBuffer)
+            log(`WAV created: ${wavBlob.size} bytes`, 'success')
+            
+            const form = new FormData()
+            form.append('file', wavBlob, 'audio.wav')
+            form.append('model_id', 'scribe_v2')
+            
+            log('Sending WAV to ElevenLabs...', 'info')
+            const fetchStart = Date.now()
+            
+            try {
+              const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+                method: 'POST',
+                headers: { 'xi-api-key': 'sk_b0f355a25dea64a975f9aef7ad791a19c4f5e266143caecc' },
+                body: form
+              })
+              
+              const fetchTime = ((Date.now() - fetchStart) / 1000).toFixed(2)
+              log(`Response: ${res.status} (${fetchTime}s)`, res.ok ? 'success' : 'error')
+              
+              if (res.ok) {
+                const result = await res.json()
+                log(`✓ Result: "${result.text}"`, 'success')
+              } else {
+                const errorText = await res.text()
+                log(`✗ Error: ${errorText}`, 'error')
+              }
+            } catch (e) {
+              const fetchTime = ((Date.now() - fetchStart) / 1000).toFixed(2)
+              log(`✗ Fetch failed (${fetchTime}s): ${e.message}`, 'error')
+            }
+          } catch (e) {
+            log(`✗ Conversion failed: ${e.message}`, 'error')
+          }
+          
+          startBtn.disabled = false
+          stopBtn.disabled = true
+        }
+        
+        mediaRecorder.start()
+        startTime = Date.now()
+        log('Recording started', 'success')
+        
+        startBtn.disabled = true
+        stopBtn.disabled = false
+      } catch (e) {
+        log(`✗ Error: ${e.message}`, 'error')
+      }
+    }
+
+    stopBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2)
+        log(`Stopping (${duration}s)...`, 'info')
+        mediaRecorder.stop()
+      }
+    }
+  </script>
+</body>
+</html>

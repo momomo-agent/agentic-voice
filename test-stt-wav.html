@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STT Debug</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+    button { padding: 12px 24px; font-size: 16px; margin: 10px 0; cursor: pointer; }
+    #log { margin-top: 20px; white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
+    .info { color: #4ec9b0; }
+    .error { color: #f48771; }
+    .success { color: #b5cea8; }
+  </style>
+</head>
+<body>
+  <h2>STT Debug Logger (webm→wav)</h2>
+  <button id="start">Start Recording</button>
+  <button id="stop" disabled>Stop Recording</button>
+  <div id="log"></div>
+
+  <script>
+    const logEl = document.getElementById('log')
+    const startBtn = document.getElementById('start')
+    const stopBtn = document.getElementById('stop')
+    
+    function log(msg, type = 'info') {
+      const time = new Date().toLocaleTimeString()
+      logEl.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`
+      logEl.scrollTop = logEl.scrollHeight
+    }
+
+    // AudioBuffer → WAV
+    function audioBufferToWav(audioBuffer) {
+      const numChannels = 1
+      const sampleRate = audioBuffer.sampleRate
+      const channelData = audioBuffer.getChannelData(0)
+      const samples = new Int16Array(channelData.length)
+      
+      for (let i = 0; i < channelData.length; i++) {
+        samples[i] = Math.max(-1, Math.min(1, channelData[i])) * 0x7FFF
+      }
+      
+      const buffer = new ArrayBuffer(44 + samples.length * 2)
+      const view = new DataView(buffer)
+      
+      const writeString = (offset, string) => {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i))
+        }
+      }
+      
+      writeString(0, 'RIFF')
+      view.setUint32(4, 36 + samples.length * 2, true)
+      writeString(8, 'WAVE')
+      writeString(12, 'fmt ')
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true) // PCM
+      view.setUint16(22, numChannels, true)
+      view.setUint32(24, sampleRate, true)
+      view.setUint32(28, sampleRate * numChannels * 2, true)
+      view.setUint16(32, numChannels * 2, true)
+      view.setUint16(34, 16, true) // 16-bit
+      writeString(36, 'data')
+      view.setUint32(40, samples.length * 2, true)
+      
+      for (let i = 0; i < samples.length; i++) {
+        view.setInt16(44 + i * 2, samples[i], true)
+      }
+      
+      return new Blob([buffer], { type: 'audio/wav' })
+    }
+
+    let mediaRecorder = null
+    let chunks = []
+    let startTime = 0
+
+    startBtn.onclick = async () => {
+      try {
+        log('Requesting microphone...', 'info')
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        log('✓ Microphone granted', 'success')
+        
+        chunks = []
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+        
+        mediaRecorder.ondataavailable = e => {
+          log(`Data chunk: ${e.data.size} bytes`, 'info')
+          chunks.push(e.data)
+        }
+        
+        mediaRecorder.onstop = async () => {
+          log('MediaRecorder stopped', 'info')
+          stream.getTracks().forEach(t => t.stop())
+          
+          const blob = new Blob(chunks, { type: 'audio/webm' })
+          log(`Blob created: ${blob.size} bytes`, 'info')
+          
+          log('Converting webm to wav...', 'info')
+          try {
+            const audioContext = new AudioContext({ sampleRate: 16000 })
+            const arrayBuffer = await blob.arrayBuffer()
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+            log(`Decoded: ${audioBuffer.duration.toFixed(2)}s, ${audioBuffer.sampleRate}Hz`, 'info')
+            
+            const wavBlob = audioBufferToWav(audioBuffer)
+            log(`WAV created: ${wavBlob.size} bytes`, 'success')
+            
+            const form = new FormData()
+            form.append('file', wavBlob, 'audio.wav')
+            form.append('model_id', 'scribe_v2')
+            
+            log('Sending WAV to ElevenLabs...', 'info')
+            const fetchStart = Date.now()
+            
+            const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+              method: 'POST',
+              headers: { 'xi-api-key': 'sk_b0f355a25dea64a975f9aef7ad791a19c4f5e266143caecc' },
+              body: form
+            })
+            
+            const fetchTime = ((Date.now() - fetchStart) / 1000).toFixed(2)
+            log(`Response: ${res.status} (${fetchTime}s)`, res.ok ? 'success' : 'error')
+            
+            if (res.ok) {
+              const result = await res.json()
+              log(`✓ Result: "${result.text}"`, 'success')
+            } else {
+              const errorText = await res.text()
+              log(`✗ Error: ${errorText}`, 'error')
+            }
+          } catch (e) {
+            log(`✗ Error: ${e.message}`, 'error')
+          }
+          
+          startBtn.disabled = false
+          stopBtn.disabled = true
+        }
+        
+        mediaRecorder.start()
+        startTime = Date.now()
+        log('Recording started', 'success')
+        
+        startBtn.disabled = true
+        stopBtn.disabled = false
+      } catch (e) {
+        log(`✗ Error: ${e.message}`, 'error')
+      }
+    }
+
+    stopBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2)
+        log(`Stopping (${duration}s)...`, 'info')
+        mediaRecorder.stop()
+      }
+    }
+  </script>
+</body>
+</html>
