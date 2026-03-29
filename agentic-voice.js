@@ -453,7 +453,6 @@
   function createSTT(config = {}) {
     const {
       provider = 'openai',
-      mode = 'browser',  // 'browser' (Web Speech API) or 'whisper'
       baseUrl = 'https://api.openai.com',
       apiKey = '',
       language = 'zh-CN',
@@ -463,7 +462,6 @@
     } = config
 
     let mediaRecorder = null
-    let webSpeechRecognition = null
     let micDownTime = 0
     let micReleased = false
 
@@ -509,47 +507,7 @@
       return new Blob([buffer], { type: 'audio/wav' })
     }
 
-    // ── Web Speech API ──
-
-    function startWebSpeech(onResult, onError) {
-      if (webSpeechRecognition) return
-      const SR = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition
-      if (!SR) { onError?.(new Error('Web Speech API not supported')); return false }
-
-      micDownTime = Date.now()
-      const recognition = new SR()
-      recognition.lang = language.replace('_', '-')
-      recognition.interimResults = false
-
-      recognition.onresult = e => {
-        const text = e.results[0]?.[0]?.transcript?.trim()
-        webSpeechRecognition = null
-        if (text) onResult?.(text)
-        else onError?.(new Error('No speech detected'))
-      }
-      recognition.onerror = e => {
-        webSpeechRecognition = null
-        onError?.(new Error('Recognition error: ' + e.error))
-      }
-      recognition.onend = () => {
-        webSpeechRecognition = null
-      }
-
-      webSpeechRecognition = recognition
-      recognition.start()
-      return true
-    }
-
-    function stopWebSpeech() {
-      if (!webSpeechRecognition) return
-      const held = Date.now() - micDownTime
-      if (held < minHoldMs) {
-        webSpeechRecognition.abort()
-        webSpeechRecognition = null
-        return
-      }
-      webSpeechRecognition.stop()
-    }
+    // ── Web Speech API removed — always use Whisper/ElevenLabs API ──
 
     // ── Whisper API ──
 
@@ -834,13 +792,11 @@
     // ── Public API ──
 
     function startListening(onResult, onError) {
-      if (mode === 'browser') return startWebSpeech(onResult, onError)
       return startWhisper(onResult, onError)
     }
 
     function stopListening() {
-      if (mode === 'browser') stopWebSpeech()
-      else stopWhisper()
+      stopWhisper()
     }
 
     function destroy() {
@@ -853,7 +809,7 @@
       transcribe,
       transcribeWithTimestamps,
       destroy,
-      get isListening() { return !!(mediaRecorder || webSpeechRecognition) },
+      get isListening() { return !!mediaRecorder },
     }
   }
 
